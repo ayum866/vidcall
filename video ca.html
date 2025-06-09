@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agora Live Streaming</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Font-family: Applying Inter globally for a modern look */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Custom styles for the video containers */
+        #local-stream-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%; /* Take full height of its parent */
+            background-color: #333;
+            border-radius: 0.75rem; /* Slightly more rounded corners */
+            overflow: hidden; /* Ensures video within stays rounded */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); /* Deeper shadow */
+            display: flex; /* To center the video if it doesn't fill entirely */
+            justify-content: center;
+            align-items: center;
+        }
+
+        #remote-stream-wrapper {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); /* Responsive grid for remote streams */
+            gap: 1.5rem; /* Increased space between remote videos */
+            width: 100%;
+            height: 100%;
+            overflow-y: auto; /* Enable scrolling if many remote streams */
+            background-color: #f8f9fa; /* Lighter background for remote section */
+            padding: 1.5rem; /* Increased padding */
+            border-radius: 0.75rem; /* Slightly more rounded corners */
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06); /* Subtle inner shadow */
+        }
+
+        .remote-video-container {
+            position: relative;
+            width: 100%;
+            height: 200px; /* Fixed height for remote video previews */
+            background-color: #444;
+            border-radius: 0.75rem; /* Consistent rounded corners */
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* Standard shadow */
+            display: flex; /* To center the video if it doesn't fill entirely */
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Agora player style to ensure video fills container */
+        .agora_video_player {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Ensures video covers the container without distortion */
+            border-radius: 0.75rem; /* Consistent rounded corners */
+        }
+
+        /* Styling for control buttons */
+        .control-button {
+            @apply px-8 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold text-lg rounded-xl shadow-lg hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-70 transition-all duration-300 ease-in-out transform hover:-translate-y-0.5;
+        }
+
+        .control-button:disabled {
+            @apply bg-gray-400 from-gray-400 to-gray-500 text-gray-700 cursor-not-allowed shadow-none transform-none;
+        }
+
+        /* Specific colors for leave, publish, unpublish */
+        #leave.control-button { @apply from-red-600 to-red-700 hover:from-red-700 hover:to-red-800; }
+        #publish.control-button { @apply from-green-600 to-green-700 hover:from-green-700 hover:to-green-800; }
+        #unpublish.control-button { @apply from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700; }
+
+        /* Input field styling */
+        .channel-input {
+            @apply p-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 w-48 transition-all duration-200 ease-in-out;
+        }
+
+        /* Message box styling */
+        #message-box {
+            @apply bg-gray-900 text-white px-6 py-3 rounded-xl shadow-2xl opacity-0 transition-opacity duration-500 ease-out pointer-events-none text-center;
+            min-width: 200px;
+            max-width: 90%;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+        }
+        #message-box.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+    <!-- Agora Web SDK CDN -->
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+</head>
+<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen flex flex-col items-center p-6">
+
+    <!-- Header Section -->
+    <header class="w-full max-w-5xl mb-10 text-center">
+        <h1 class="text-5xl font-extrabold text-gray-800 mb-3 drop-shadow-md">Agora Live Stream</h1>
+        <p class="text-gray-600 text-xl">Connect with others in real-time video.</p>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="w-full max-w-6xl bg-white rounded-3xl shadow-2xl p-10 flex flex-col md:flex-row gap-10">
+
+        <!-- Local Stream and Controls -->
+        <section class="flex-1 flex flex-col items-center">
+            <h2 class="text-3xl font-bold text-gray-700 mb-6">Your Stream</h2>
+            <div id="local-stream-wrapper" class="w-full h-80 bg-gray-800 rounded-lg shadow-md mb-8">
+                <!-- Local video stream will be rendered here -->
+            </div>
+
+            <!-- Controls for local stream -->
+            <div class="flex flex-wrap justify-center gap-4 w-full">
+                <input type="text" id="channel" placeholder="Channel Name" class="channel-input">
+                <button id="join" class="control-button">Join</button>
+                <button id="leave" class="control-button" disabled>Leave</button>
+                <button id="publish" class="control-button" disabled>Publish</button>
+                <button id="unpublish" class="control-button" disabled>Unpublish</button>
+            </div>
+        </section>
+
+        <!-- Remote Streams Section -->
+        <section class="flex-1 flex flex-col">
+            <h2 class="text-3xl font-bold text-gray-700 mb-6 text-center">Remote Streams</h2>
+            <div id="remote-stream-wrapper" class="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg shadow-inner min-h-[300px]">
+                <!-- Remote video streams will be rendered here -->
+                <p id="no-remote-streams" class="text-gray-500 text-center col-span-full self-center">No remote streams yet.</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Simple Message Box for alerts -->
+    <div id="message-box" class="fixed bottom-6 right-6"></div>
+
+
+    <script>
+        // Initialize Agora client outside the function to make it globally accessible
+        let agoraClient = null;
+        let localTracks = {
+            videoTrack: null,
+            audioTrack: null
+        };
+        let remoteUsers = {}; // To keep track of remote users and their tracks
+
+        // Replace with your Agora App ID, Token, and Channel Name
+        // You can get these from the Agora console: https://console.agora.io/
+        const APP_ID = '31aa8264121649dc908338fb6a7035aa'; // Your actual App ID has been added here
+        const TOKEN = null; // Use null for temp token, or your actual token string
+        // The CHANNEL variable is now dynamically fetched from the input field when 'join' is clicked.
+        // const CHANNEL = document.getElementById('channel').value; // This line is no longer needed globally
+
+
+        /**
+         * Utility function to display messages to the user (instead of alert())
+         * @param {string} message - The message to display.
+         * @param {number} duration - How long to show the message in milliseconds.
+         */
+        function showMessage(message, duration = 3000) {
+            const msgBox = document.getElementById('message-box');
+            msgBox.textContent = message;
+            msgBox.classList.add('show'); // Add a class to trigger the animation
+            setTimeout(() => {
+                msgBox.classList.remove('show'); // Remove the class to hide it
+            }, duration);
+        }
+
+        // --- Agora Client Initialization and Event Handling ---
+        window.onload = function () {
+            agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }); // Use "rtc" for live streaming
+
+            // Event handler for when a remote user publishes their stream
+            agoraClient.on("user-published", async (user, mediaType) => {
+                await agoraClient.subscribe(user, mediaType); // Subscribe to the remote user's stream
+                console.log("Subscribed to remote user's stream:", user.uid, mediaType);
+                showMessage(`Remote user ${user.uid} published ${mediaType} stream.`);
+
+                if (mediaType === "video") {
+                    const noRemoteStreamsMessage = document.getElementById('no-remote-streams');
+                    if (noRemoteStreamsMessage) {
+                        noRemoteStreamsMessage.remove(); // Remove "No remote streams yet" message
+                    }
+
+                    const remoteStreamWrapper = document.getElementById('remote-stream-wrapper');
+                    let remoteVideoContainer = document.getElementById(`remote-${user.uid}`);
+                    if (!remoteVideoContainer) {
+                        // Create a new div for the remote video
+                        remoteVideoContainer = document.createElement('div');
+                        remoteVideoContainer.id = `remote-${user.uid}`;
+                        remoteVideoContainer.className = 'remote-video-container'; // Apply styling class
+                        remoteStreamWrapper.appendChild(remoteVideoContainer);
+                    }
+                    user.videoTrack.play(remoteVideoContainer); // Play the remote video in its container
+                }
+                if (mediaType === "audio") {
+                    user.audioTrack.play(); // Play the remote audio
+                }
+                remoteUsers[user.uid] = user; // Store the remote user object
+            });
+
+            // Event handler for when a remote user unpublishes or leaves the channel
+            agoraClient.on("user-unpublished", (user, mediaType) => {
+                if (mediaType === "video") {
+                    const remoteVideoContainer = document.getElementById(`remote-${user.uid}`);
+                    if (remoteVideoContainer) {
+                        remoteVideoContainer.remove(); // Remove the remote video container
+                    }
+                }
+                delete remoteUsers[user.uid]; // Remove user from tracking
+                console.log("Remote user unpublished:", user.uid, mediaType);
+                showMessage(`Remote user ${user.uid} unpublished ${mediaType} stream.`);
+
+                // If no remote streams, show the message again
+                if (Object.keys(remoteUsers).length === 0) {
+                    const remoteStreamWrapper = document.getElementById('remote-stream-wrapper');
+                    if (!document.getElementById('no-remote-streams')) {
+                        const noRemoteStreamsMessage = document.createElement('p');
+                        noRemoteStreamsMessage.id = 'no-remote-streams';
+                        noRemoteStreamsMessage.className = 'text-gray-500 text-center col-span-full self-center';
+                        noRemoteStreamsMessage.textContent = 'No remote streams yet.';
+                        remoteStreamWrapper.appendChild(noRemoteStreamsMessage);
+                    }
+                }
+            });
+
+            // Event handler for when a remote user joins the channel
+            agoraClient.on("user-joined", (user) => {
+                console.log("User joined:", user.uid);
+                showMessage(`User ${user.uid} joined the channel.`);
+            });
+
+            // Event handler for when a remote user leaves the channel
+            agoraClient.on("user-left", (user) => {
+                console.log("User left:", user.uid);
+                showMessage(`User ${user.uid} left the channel.`);
+                // Clean up remote user's container if they left without explicit unpublish
+                const remoteVideoContainer = document.getElementById(`remote-${user.uid}`);
+                if (remoteVideoContainer) {
+                    remoteVideoContainer.remove();
+                }
+                delete remoteUsers[user.uid];
+
+                // If no remote streams, show the message again
+                if (Object.keys(remoteUsers).length === 0) {
+                    const remoteStreamWrapper = document.getElementById('remote-stream-wrapper');
+                    if (!document.getElementById('no-remote-streams')) {
+                        const noRemoteStreamsMessage = document.createElement('p');
+                        noRemoteStreamsMessage.id = 'no-remote-streams';
+                        noRemoteStreamsMessage.className = 'text-gray-500 text-center col-span-full self-center';
+                        noRemoteStreamsMessage.textContent = 'No remote streams yet.';
+                        remoteStreamWrapper.appendChild(noRemoteStreamsMessage);
+                    }
+                }
+            });
+
+            // Event handler for connection state changes
+            agoraClient.on("connection-state-change", (curState, prevState) => {
+                console.log(`Connection state changed from ${prevState} to ${curState}`);
+                showMessage(`Connection state: ${curState}`);
+            });
+        };
+
+
+        // --- Button Event Listeners ---
+
+        document.getElementById('join').onclick = async () => {
+            const channelName = document.getElementById('channel').value;
+            if (!channelName) {
+                showMessage("Please enter a channel name.");
+                return;
+            }
+            if (!APP_ID || APP_ID === 'YOUR_AGORA_APP_ID') {
+                showMessage("Please replace 'YOUR_AGORA_APP_ID' with your actual Agora App ID in the code.");
+                return;
+            }
+
+            try {
+                // Join the channel using the APP_ID, channelName, and TOKEN
+                await agoraClient.join(APP_ID, channelName, TOKEN || null);
+                console.log("Joined channel:", channelName);
+                showMessage("Joined channel successfully!");
+
+                // Create local audio and video tracks
+                localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+                localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
+
+                // Play the local video track in the local-stream-wrapper
+                localTracks.videoTrack.play('local-stream-wrapper');
+                console.log("Local audio and video tracks created and playing.");
+
+                // Update button states after successful join
+                document.getElementById('join').disabled = true;
+                document.getElementById('channel').disabled = true;
+                document.getElementById('leave').disabled = false;
+                document.getElementById('publish').disabled = false;
+                document.getElementById('unpublish').disabled = true; // Cannot unpublish before publishing
+            } catch (error) {
+                console.error("Failed to join or create local tracks:", error);
+                showMessage(`Failed to join: ${error.message}`);
+            }
+        };
+
+        document.getElementById('leave').onclick = async () => {
+            try {
+                // Stop and close local tracks
+                if (localTracks.audioTrack) {
+                    localTracks.audioTrack.stop();
+                    localTracks.audioTrack.close();
+                    localTracks.audioTrack = null;
+                }
+                if (localTracks.videoTrack) {
+                    localTracks.videoTrack.stop();
+                    localTracks.videoTrack.close();
+                    localTracks.videoTrack = null;
+                }
+
+                // Leave the channel
+                await agoraClient.leave();
+                console.log("Left the channel.");
+                showMessage("Left the channel.");
+
+                // Clear remote users display and reset the remoteUsers object
+                const remoteStreamWrapper = document.getElementById('remote-stream-wrapper');
+                remoteStreamWrapper.innerHTML = '<p id="no-remote-streams" class="text-gray-500 text-center col-span-full self-center">No remote streams yet.</p>';
+                remoteUsers = {};
+
+                // Update button states after successful leave
+                document.getElementById('join').disabled = false;
+                document.getElementById('channel').disabled = false;
+                document.getElementById('leave').disabled = true;
+                document.getElementById('publish').disabled = true;
+                document.getElementById('unpublish').disabled = true;
+            } catch (error) {
+                console.error("Failed to leave the channel:", error);
+                showMessage(`Failed to leave: ${error.message}`);
+            }
+        };
+
+        document.getElementById('publish').onclick = async () => {
+            try {
+                // Publish all available local tracks (audio and video)
+                await agoraClient.publish(Object.values(localTracks).filter(track => track !== null));
+                console.log("Local tracks published.");
+                showMessage("Local tracks published successfully!");
+
+                // Update button states after successful publish
+                document.getElementById('publish').disabled = true;
+                document.getElementById('unpublish').disabled = false;
+            } catch (error) {
+                console.error("Failed to publish local tracks:", error);
+                showMessage(`Failed to publish: ${error.message}`);
+            }
+        };
+
+        document.getElementById('unpublish').onclick = async () => {
+            try {
+                // Unpublish all local tracks
+                await agoraClient.unpublish(Object.values(localTracks).filter(track => track !== null));
+                console.log("Local tracks unpublished.");
+                showMessage("Local tracks unpublished.");
+
+                // Update button states after successful unpublish
+                document.getElementById('publish').disabled = false;
+                document.getElementById('unpublish').disabled = true;
+            } catch (error) {
+                console.error("Failed to unpublish local tracks:", error);
+                showMessage(`Failed to unpublish: ${error.message}`);
+            }
+        };
+    </script>
+</body>
+</html>
